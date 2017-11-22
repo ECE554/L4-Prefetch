@@ -519,8 +519,108 @@ void open_ended_prefetcher(struct cache_t *cp, md_addr_t addr) {
 }
 
 /* Stride Prefetcher */
+md_addr_t get_PC();
+
+typedef enum {
+    INIT,
+    STEADY,
+    TRANSIENT,
+    NO_PREDICTION
+} state;
+
+typedef struct rpt_entry {
+    md_addr_t tag;
+    md_addr_t prev_addr;
+    int stride;
+    state state;
+} rpt_entry;
+
+static rpt_entry *rpt;
+static int num_rpt_entries;
+static int rpt_index_length;
+static int tag_length;
+static unsigned int rpt_index_mask;
+
 void stride_prefetcher(struct cache_t *cp, md_addr_t addr) {
-	; 
+	
+    if(rpt == NULL) {
+        //init rpt table
+        num_rpt_entries = cp->prefetch_type;
+        rpt = (rpt_entry*) malloc(num_rpt_entries * sizeof(rpt_entry));
+        rpt_index_length = log_base2(num_rpt_entries);
+        
+        //make mask to get rpt_index from pc
+        tag_length =  64 - 2 - log_base2(num_rpt_entries); //64-bit addresses - bottom 2 - rpt_index
+        for(int i = 0; i < tag_length; i++) rpt_index_mask = (rpt_index_mask << 1 | 0b1);
+        rpt_index_mask <<= rpt_index_length;
+        rpt_index_mask = ~rpt_index_mask;
+        
+        for(int i = 0; i < num_rpt_entries; i++) {
+            rpt[i].tag = 0;
+        }
+    }
+        
+    md_addr_t pc = get_PC();
+    int rpt_index = pc >> 2 & rpt_index_mask;
+    
+    md_addr_t tag = pc >> (2 + rpt_index_length);
+    
+    if (rpt[rpt_index].tag == 0 || rpt[rpt_index].tag != tag) {
+        rpt[rpt_index].tag = tag;
+        rpt[rpt_index].prev_addr = addr;
+        rpt[rpt_index].stride = 0;
+        rpt[rpt_index].state = INIT;
+        return;
+    }
+    else {
+        // get the new stride
+        int new_stride;
+        new_stride = addr - rpt[rpt_index].prev_addr;
+        
+        // move state depending on current state
+        state current_state = rpt[rpt_index].state;
+        
+        if(current_state == INIT) {
+            if (rpt[rpt_index].stride != new_stride) {
+                rpt[rpt_index].state = TRANSIENT;
+            }
+            else {
+                rpt[rpt_index].state = STEADY;
+            }
+        }
+        else if(current_state == STEADY) {
+            if (rpt[rpt_index].stride != new_stride) {
+                rpt[rpt_index].state = INIT;
+            }
+        }
+        else if(current_state == TRANSIENT) {
+            if (rpt[rpt_index].stride == new_stride) {
+                rpt[rpt_index].state = STEADY;
+            }
+            else {
+                rpt[rpt_index].state = NO_PREDICTION;
+            }
+        }
+        else if(current_state == NO_PREDICTION) {
+            if(rpt[rpt_index].stride == new_stride) {
+                rpt[rpt_index].state = TRANSIENT;
+            }
+        }
+        
+        rpt[rpt_index].prev_addr = addr;
+        rpt[rpt_index].stride = new_stride;
+    }
+        
+    if(rpt[rpt_index].state != NO_PREDICTION) {
+        md_addr_t new_addr = rpt[rpt_index].prev_addr + rpt[rpt_index].stride;
+        
+        if ( cache_probe(cp, new_addr) == 0 ) {
+            
+            cache_access(cp, Read, new_addr, NULL, cp->bsize, 0, NULL, NULL, 1);
+            
+        }
+    }
+    
 }
 
 
@@ -547,7 +647,7 @@ void generate_prefetch(struct cache_t *cp, md_addr_t addr) {
 
 }
 
-md_addr_t get_PC();
+
 
 /* print cache stats */
 void
