@@ -514,8 +514,38 @@ void next_line_prefetcher(struct cache_t *cp, md_addr_t addr) {
 }
 
 /* Open Ended Prefetcher */
+int INDEX_LENGTH = 19;
+unsigned int IDX_MASK;
+
+md_addr_t* next_addr_table;
+md_addr_t last_addr = 0;
+
 void open_ended_prefetcher(struct cache_t *cp, md_addr_t addr) {
-	; 
+  if (next_addr_table == NULL) {
+    IDX_MASK = (1 << INDEX_LENGTH) - 1;
+    int table_size = 1 << INDEX_LENGTH;
+    next_addr_table = (md_addr_t*) malloc(table_size * sizeof(md_addr_t));
+
+    for (int i = 0; i < table_size; i++) {
+      next_addr_table[i] = 0;
+    }
+  }
+
+  unsigned int index = (addr >> 2) & IDX_MASK;
+
+  md_addr_t prefetch_addr = next_addr_table[index];
+  if (prefetch_addr != 0) {
+    if (cache_probe(cp, prefetch_addr) == 0) {
+      cache_access(cp, Read, prefetch_addr, NULL, sizeof(char), NULL, NULL, NULL, 1);
+    }
+  }
+
+  if (last_addr != 0) {
+    unsigned int last_index = (last_addr >> 2) & IDX_MASK;
+    next_addr_table[last_index] = addr;
+  }
+
+  last_addr = addr;
 }
 
 /* Stride Prefetcher */
@@ -616,7 +646,7 @@ void stride_prefetcher(struct cache_t *cp, md_addr_t addr) {
         
         if ( cache_probe(cp, new_addr) == 0 ) {
             
-            cache_access(cp, Read, new_addr, NULL, cp->bsize, 0, NULL, NULL, 1);
+            cache_access(cp, Read, new_addr, NULL, sizeof(char), 0, NULL, NULL, 1);
             
         }
     }
