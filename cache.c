@@ -518,6 +518,8 @@ int INDEX_LENGTH = 16;
 unsigned int IDX_MASK;
 
 md_addr_t* next_addr_table;
+md_addr_t* tag_addr_table;
+
 int* confidence_table;
 md_addr_t last_addr = 0;
 
@@ -526,37 +528,25 @@ void open_ended_prefetcher(struct cache_t *cp, md_addr_t addr) {
     IDX_MASK = (1 << INDEX_LENGTH) - 1;
     int table_size = 1 << INDEX_LENGTH;
     next_addr_table = (md_addr_t*) malloc(table_size * sizeof(md_addr_t));
+    tag_addr_table = (md_addr_t*) malloc(table_size * sizeof(md_addr_t));
     confidence_table = (int*) malloc(table_size * sizeof(int));
 
-    for (int i = 0; i < table_size; i++) {
-      next_addr_table[i] = 0;
-    }
   }
 
-  unsigned int index = (addr >> 2) & IDX_MASK ^ (addr >> 3) & IDX_MASK;
+  unsigned int index = ((addr >> 2) ^ (addr >> 5) ^ (addr >> 6)) & IDX_MASK;
+  md_addr_t prefetch_addr = next_addr_table[index];
 
-  md_addr_t prefetch_addr = next_addr_table[index] << 2;
-  if (prefetch_addr != 0) {
+  if (tag_addr_table[index] == addr && prefetch_addr != 0) {
     if (cache_probe(cp, prefetch_addr) == 0) {
-      if (confidence_table[index] > -1) {
-        cache_access(cp, Read, prefetch_addr, NULL, sizeof(char), NULL, NULL, NULL, 1);
-      }
+      cache_access(cp, Read, prefetch_addr, NULL, sizeof(char), 0, NULL, NULL, 1);
     }
   }
+  
+  unsigned int last_index = ((last_addr >> 2) ^ (last_addr >> 5) ^ (last_addr >> 6)) & IDX_MASK;
 
-  if (last_addr != 0) {
-    unsigned int last_index = (last_addr >> 2) & IDX_MASK  ^ (last_addr >> 3) & IDX_MASK;
-    if (next_addr_table[last_index] == addr >> 2) {
-      confidence_table[last_index] = confidence_table[last_index] == 3 ? 3 : confidence_table[last_index] + 1;
-    } else {
-      confidence_table[last_index] = confidence_table[last_index] == 0 ? 0 : confidence_table[last_index] - 1;
-    }
-
-    if (confidence_table[last_index] < 2) {
-      next_addr_table[last_index] = addr >> 2;
-      confidence_table[last_index] = 2;
-    }
-  }
+  next_addr_table[last_index] = addr;
+  tag_addr_table[last_index] = last_addr;
+  confidence_table[last_index] = 0;
 
   last_addr = addr;
 }
