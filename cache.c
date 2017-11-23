@@ -531,7 +531,7 @@ typedef enum {
 typedef struct rpt_entry {
     md_addr_t tag;
     md_addr_t prev_addr;
-    int stride;
+    md_addr_t stride;
     state state;
 } rpt_entry;
 
@@ -550,7 +550,7 @@ void stride_prefetcher(struct cache_t *cp, md_addr_t addr) {
         rpt_index_length = log_base2(num_rpt_entries);
         
         //make mask to get rpt_index from pc
-        tag_length =  64 - 2 - log_base2(num_rpt_entries); //64-bit addresses - bottom 2 - rpt_index
+        tag_length =  32 - 3 - log_base2(num_rpt_entries);
         for(int i = 0; i < tag_length; i++) rpt_index_mask = (rpt_index_mask << 1 | 0b1);
         rpt_index_mask <<= rpt_index_length;
         rpt_index_mask = ~rpt_index_mask;
@@ -561,11 +561,11 @@ void stride_prefetcher(struct cache_t *cp, md_addr_t addr) {
     }
         
     md_addr_t pc = get_PC();
-    int rpt_index = pc >> 2 & rpt_index_mask;
+    int rpt_index = pc >> 3 & rpt_index_mask;
     
-    md_addr_t tag = pc >> (2 + rpt_index_length);
+    md_addr_t tag = pc >> (3 + rpt_index_length);
     
-    if (rpt[rpt_index].tag == 0 || rpt[rpt_index].tag != tag) {
+    if (rpt[rpt_index].tag != tag) {
         rpt[rpt_index].tag = tag;
         rpt[rpt_index].prev_addr = addr;
         rpt[rpt_index].stride = 0;
@@ -574,7 +574,7 @@ void stride_prefetcher(struct cache_t *cp, md_addr_t addr) {
     }
     else {
         // get the new stride
-        int new_stride;
+        md_addr_t new_stride;
         new_stride = addr - rpt[rpt_index].prev_addr;
         
         // move state depending on current state
@@ -616,7 +616,7 @@ void stride_prefetcher(struct cache_t *cp, md_addr_t addr) {
         
         if ( cache_probe(cp, new_addr) == 0 ) {
             
-            cache_access(cp, Read, new_addr, NULL, cp->bsize, 0, NULL, NULL, 1);
+            cache_access(cp, Read, new_addr, NULL, sizeof(char), 0, NULL, NULL, 1);
             
         }
     }
