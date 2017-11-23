@@ -615,9 +615,7 @@ void stride_prefetcher(struct cache_t *cp, md_addr_t addr) {
         md_addr_t new_addr = rpt[rpt_index].prev_addr + rpt[rpt_index].stride;
         
         if ( cache_probe(cp, new_addr) == 0 ) {
-            
             cache_access(cp, Read, new_addr, NULL, sizeof(char), 0, NULL, NULL, 1);
-            
         }
     }
     
