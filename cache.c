@@ -514,10 +514,11 @@ void next_line_prefetcher(struct cache_t *cp, md_addr_t addr) {
 }
 
 /* Open Ended Prefetcher */
-int INDEX_LENGTH = 19;
+int INDEX_LENGTH = 16;
 unsigned int IDX_MASK;
 
 md_addr_t* next_addr_table;
+int* confidence_table;
 md_addr_t last_addr = 0;
 
 void open_ended_prefetcher(struct cache_t *cp, md_addr_t addr) {
@@ -525,24 +526,36 @@ void open_ended_prefetcher(struct cache_t *cp, md_addr_t addr) {
     IDX_MASK = (1 << INDEX_LENGTH) - 1;
     int table_size = 1 << INDEX_LENGTH;
     next_addr_table = (md_addr_t*) malloc(table_size * sizeof(md_addr_t));
+    confidence_table = (int*) malloc(table_size * sizeof(int));
 
     for (int i = 0; i < table_size; i++) {
       next_addr_table[i] = 0;
     }
   }
 
-  unsigned int index = (addr >> 2) & IDX_MASK;
+  unsigned int index = (addr >> 2) & IDX_MASK ^ (addr >> 3) & IDX_MASK;
 
-  md_addr_t prefetch_addr = next_addr_table[index];
+  md_addr_t prefetch_addr = next_addr_table[index] << 2;
   if (prefetch_addr != 0) {
     if (cache_probe(cp, prefetch_addr) == 0) {
-      cache_access(cp, Read, prefetch_addr, NULL, sizeof(char), NULL, NULL, NULL, 1);
+      if (confidence_table[index] > -1) {
+        cache_access(cp, Read, prefetch_addr, NULL, sizeof(char), NULL, NULL, NULL, 1);
+      }
     }
   }
 
   if (last_addr != 0) {
-    unsigned int last_index = (last_addr >> 2) & IDX_MASK;
-    next_addr_table[last_index] = addr;
+    unsigned int last_index = (last_addr >> 2) & IDX_MASK  ^ (last_addr >> 3) & IDX_MASK;
+    if (next_addr_table[last_index] == addr >> 2) {
+      confidence_table[last_index] = confidence_table[last_index] == 3 ? 3 : confidence_table[last_index] + 1;
+    } else {
+      confidence_table[last_index] = confidence_table[last_index] == 0 ? 0 : confidence_table[last_index] - 1;
+    }
+
+    if (confidence_table[last_index] < 2) {
+      next_addr_table[last_index] = addr >> 2;
+      confidence_table[last_index] = 2;
+    }
   }
 
   last_addr = addr;
@@ -1050,60 +1063,3 @@ cache_flush(struct cache_t *cp,		/* cache instance to flush */
   /* return latency of the flush operation */
   return lat;
 }
-
-/* flush the block containing ADDR from the cache CP, returns the latency of
-   the block flush operation */
-unsigned int				/* latency of flush operation */
-cache_flush_addr(struct cache_t *cp,	/* cache instance to flush */
-		 md_addr_t addr,	/* address of block to flush */
-		 tick_t now)		/* time of cache flush */
-{
-  md_addr_t tag = CACHE_TAG(cp, addr);
-  md_addr_t set = CACHE_SET(cp, addr);
-  struct cache_blk_t *blk;
-  int lat = cp->hit_latency; /* min latency to probe cache */
-
-  if (cp->hsize)
-    {
-      /* higly-associativity cache, access through the per-set hash tables */
-      int hindex = CACHE_HASH(cp, tag);
-
-      for (blk=cp->sets[set].hash[hindex];
-	   blk;
-	   blk=blk->hash_next)
-	{
-	  if (blk->tag == tag && (blk->status & CACHE_BLK_VALID))
-	    break;
-	}
-    }
-  else
-    {
-      /* low-associativity cache, linear search the way list */
-      for (blk=cp->sets[set].way_head;
-	   blk;
-	   blk=blk->way_next)
-	{
-	  if (blk->tag == tag && (blk->status & CACHE_BLK_VALID))
-	    break;
-	}
-    }
-
-  if (blk)
-    {
-      cp->invalidations++;
-      blk->status &= ~CACHE_BLK_VALID;
-
-      /* blow away the last block to hit */
-      cp->last_tagset = 0;
-      cp->last_blk = NULL;
-
-      if (blk->status & CACHE_BLK_DIRTY)
-	{
-	  /* write back the invalidated block */
-          cp->writebacks++;
-	  lat += cp->blk_access_fn(Write,
-				   CACHE_MK_BADDR(cp, blk->tag, set),
-				   cp->bsize, blk, now+lat, 0);
-	}
-      /* move this block to tail of the way (LRU) list */
-      update_way
