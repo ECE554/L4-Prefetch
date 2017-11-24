@@ -514,7 +514,7 @@ void next_line_prefetcher(struct cache_t *cp, md_addr_t addr) {
 }
 
 /* Open Ended Prefetcher */
-int INDEX_LENGTH = 16;
+int INDEX_LENGTH = 15;
 unsigned int IDX_MASK;
 
 md_addr_t* next_addr_table;
