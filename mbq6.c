@@ -58,7 +58,7 @@ int main() {
     
     //TEST code
 
-    //4 reads per loop;
+    //4 accesses per loop;
     for (i = 0; i < 1000; i++) {
         *a = i;
         *b = i;
